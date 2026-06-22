@@ -425,7 +425,7 @@ footer.note { text-align: center; font-size: 12px; color: var(--ink-faint); padd
 <div class="modal-backdrop" id="restoreBackdrop">
   <div class="modal" role="dialog" aria-modal="true">
     <h2>Restore from backup</h2>
-    <p class="mdesc">Every save is automatically backed up. The last 10 backups are kept — pick one below to restore it. This will overwrite the current data for everyone.</p>
+    <p class="mdesc">Every save is automatically backed up. The last 50 backups are kept — pick one below to restore it. This will overwrite the current data for everyone.</p>
     <div id="restoreList" style="display:flex;flex-direction:column;gap:8px;max-height:340px;overflow-y:auto;margin-bottom:6px;"></div>
     <div class="modal-actions">
       <button type="button" class="btn-cancel" id="restoreCancel">Close</button>
@@ -607,13 +607,14 @@ function startAutoRefresh(){
     if(document.querySelector('.modal-backdrop.open')) return;
     try{
       const remote=await fetchRemote();
-      const local=loadLocal();
-      if(remote&&remote.members&&remote.events&&remote.updatedAt){
-        if(!local||!local.updatedAt||remote.updatedAt>local.updatedAt){
+      if(remoteHasData(remote)){
+        const local=loadLocal();
+        // Only update UI if remote is newer than what we have locally
+        if(!local||!local.updatedAt||!remote.updatedAt||remote.updatedAt>local.updatedAt){
           applyRemote(remote); render(); setSyncStatus('connected','Updated just now');
         } else { setSyncStatus('connected','Up to date'); }
       } else { setSyncStatus('connected','Up to date'); }
-    }catch(e){ setSyncStatus('offline','Sync paused'); }
+    }catch(e){ setSyncStatus('offline','Sync paused — will retry'); }
   },REFRESH_MS);
 }
 
@@ -1032,82 +1033,102 @@ function closeM(bd){ bd.classList.remove('open'); }
    SYNC
 ===================================================================== */
 async function syncNow(isFirst){
+  // Called when user taps Connect (isFirst=true) or Sync Now (isFirst=false).
+  // Rule: remote ALWAYS wins if it has data. We never push local to remote here.
   const u=getUrl();
   if(!u){ openM(connectBackdrop); return; }
   setSyncStatus('syncing','Syncing…');
   try{
     const remote=await fetchRemote();
-    if(remote&&remote.members&&remote.events&&remote.events.length>0){
-      // Remote has real data — ALWAYS use it. Never compare timestamps here.
-      // A new device should never win over existing family data.
-      applyRemote(remote); render();
+    if(remoteHasData(remote)){
+      applyRemote(remote);
+      render();
     }
-    // Remote empty or missing — do nothing, never push local up via syncNow
-    setSyncStatus('connected',isFirst?'Connected! Loading your data…':'Synced just now');
+    setSyncStatus('connected',isFirst?'Connected!':'Synced just now');
     startAutoRefresh();
-  }catch(e){ setSyncStatus('offline',isFirst?'Could not connect — check the URL':'Sync failed'); }
+  }catch(e){
+    setSyncStatus('offline',isFirst?'Could not connect — check the URL':'Sync failed');
+  }
+}
+
+function remoteHasData(remote){
+  return remote && remote.members && Array.isArray(remote.events) && remote.events.length > 0;
 }
 
 /* =====================================================================
    INIT
 ===================================================================== */
 async function init(){
-  const u=getUrl();
+  const u = getUrl();
 
   if(u){
-    // URL is already saved (returning device or pre-configured).
-    // Fetch remote FIRST — never seed, never push local unless remote is empty.
+    // A Google Sheet URL is saved — fetch remote FIRST, before touching
+    // anything local. Remote always wins. We never push local up in init().
     setSyncStatus('syncing','Loading your planner…');
     try{
-      const remote=await fetchRemote();
-      if(remote&&remote.members&&remote.events&&remote.events.length>0){
+      const remote = await fetchRemote();
+      if(remoteHasData(remote)){
+        // Remote has real family data — load it and we're done
         applyRemote(remote);
         render();
         setSyncStatus('connected','Synced just now');
         startAutoRefresh();
         return;
       }
-      // Remote is empty — this is the very first setup, fall through to seed
+      // Remote returned something but it's empty — treat as first-ever setup
+      // Fall through to seed + push below
     }catch(e){
-      // Network error on load — use local cache if available, don't seed
-      const local=loadLocal();
-      if(local&&local.events&&local.events.length>0){
-        applyRemote(local); render();
-        setSyncStatus('offline','Offline — showing cached data');
+      // Network error — check local cache
+      const cached = loadLocal();
+      if(cached && cached.events && cached.events.length > 0){
+        applyRemote(cached);
+        render();
+        setSyncStatus('offline','No internet — showing last saved data');
       } else {
-        setSyncStatus('offline','Could not connect — check your internet');
+        // No cache, no network — show seed events in memory only (don't save)
+        S.events = seedEvents();
+        render();
+        setSyncStatus('offline','No internet — connect to load family data');
       }
       return;
     }
   }
 
-  // Reach here only if: (a) no URL saved yet, or (b) URL set but remote is empty
-  const local=loadLocal();
-  if(local&&local.events&&local.events.length>0){
-    // Use existing local cache — do NOT re-seed
-    applyRemote(local); render();
-    if(!u){ setSyncStatus('offline','Not connected — saved on this device only'); }
+  // No URL saved OR remote is empty:
+  // Check local cache first
+  const cached = loadLocal();
+  if(cached && cached.events && cached.events.length > 0){
+    applyRemote(cached);
+    render();
+    if(!u) setSyncStatus('offline','Not connected — saved on this device only');
     return;
   }
 
-  // Truly first-ever launch with no URL and no local data — show seeds
-  // but DO NOT save them to localStorage yet (prevents timestamp collision)
-  S.events=seedEvents();
+  // Nothing anywhere — first ever launch. Show seeds in memory only.
+  // Do NOT save seeds to localStorage (avoids timestamp collision later).
+  S.events = seedEvents();
   render();
 
   if(!u){
-    setSyncStatus('offline','Not connected — add events and tap 🔗 to connect');
+    setSyncStatus('offline','Not connected — tap 🔗 to connect your Google Sheet');
     return;
   }
 
-  // URL set, remote was empty — this is the first-ever setup, push seeds up
-  const seedData={updatedAt:new Date().toISOString(),familyTitle:S.familyTitle,members:S.members.map(m=>({...m})),events:S.events};
-  saveLocal(seedData);
+  // URL saved + remote was empty = genuine first setup. Push seeds up.
+  const firstData = {
+    updatedAt: new Date().toISOString(),
+    familyTitle: S.familyTitle,
+    members: S.members.map(m=>({...m})),
+    events: S.events
+  };
+  saveLocal(firstData);
   try{
-    await pushRemote(seedData);
+    await pushRemote(firstData);
     setSyncStatus('connected','Synced just now');
     startAutoRefresh();
-  }catch(e){ setSyncStatus('offline','Saved locally — sync failed'); }
+  }catch(e){
+    setSyncStatus('offline','Saved locally — sync failed');
+  }
 }
 
 init();
