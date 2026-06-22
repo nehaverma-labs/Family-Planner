@@ -1052,7 +1052,34 @@ async function syncNow(isFirst){
    INIT
 ===================================================================== */
 async function init(){
+  const u=getUrl();
+
+  // If a Google Sheet URL is connected, ALWAYS fetch remote first before
+  // touching local data. Never push seed/local data if remote already has
+  // real data — this prevents a new device from overwriting everyone's data.
+  if(u){
+    setSyncStatus('syncing','Loading your planner…');
+    try{
+      const remote=await fetchRemote();
+      if(remote&&remote.members&&remote.events&&remote.events.length>0){
+        // Remote has real data — use it, ignore whatever is local
+        applyRemote(remote);
+        render();
+        setSyncStatus('connected','Synced just now');
+        startAutoRefresh();
+        return; // done — skip seed and local fallback entirely
+      }
+      // Remote exists but is empty — fall through to local/seed below,
+      // and push local up at the end
+    }catch(e){
+      // Network error — fall through to local cache silently
+      setSyncStatus('offline','Saved locally — sync failed');
+    }
+  }
+
+  // No URL connected, or remote was empty — use local cache or seed
   let local=loadLocal();
+  const isFirstEver=!local;
   if(!local){
     local={updatedAt:new Date().toISOString(),familyTitle:S.familyTitle,members:S.members.map(m=>({...m})),events:seedEvents()};
     saveLocal(local);
@@ -1062,18 +1089,11 @@ async function init(){
   S.familyTitle=local.familyTitle||S.familyTitle;
   render();
 
-  const u=getUrl();
   if(!u){ setSyncStatus('offline','Not connected — saved on this device only'); return; }
-  setSyncStatus('syncing','Checking for updates…');
+
+  // Remote was empty — push local/seed data up to initialise the sheet
   try{
-    const remote=await fetchRemote();
-    if(remote&&remote.members&&remote.events){
-      if(!local.updatedAt||(remote.updatedAt&&remote.updatedAt>local.updatedAt)){
-        applyRemote(remote); render();
-      } else if(local.updatedAt&&(!remote.updatedAt||local.updatedAt>remote.updatedAt)){
-        await pushRemote(local);
-      }
-    } else { await pushRemote(local); }
+    await pushRemote(local);
     setSyncStatus('connected','Synced just now');
     startAutoRefresh();
   }catch(e){ setSyncStatus('offline','Saved locally — sync failed'); }
