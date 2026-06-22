@@ -269,6 +269,63 @@ footer.note { text-align: center; font-size: 12px; color: var(--ink-faint); padd
 .backup-empty { color: var(--ink-faint); font-size: 13px; text-align: center; padding: 24px 0; }
 .backup-loading { color: var(--ink-faint); font-size: 13px; text-align: center; padding: 24px 0; }
 
+/* ---- PIN screen ---- */
+#pinScreen {
+  position: fixed; inset: 0; z-index: 9999;
+  background: var(--bg);
+  background-image:
+    radial-gradient(circle at 110% -5%, rgba(217,162,59,0.09), transparent 36%),
+    radial-gradient(circle at -8% 55%, rgba(63,110,94,0.07), transparent 40%);
+  display: flex; align-items: center; justify-content: center;
+  padding: 24px;
+}
+#pinScreen.hidden { display: none; }
+.pin-card {
+  background: var(--surface); border-radius: var(--radius);
+  padding: 36px 32px 32px; max-width: 340px; width: 100%;
+  box-shadow: 0 24px 60px -20px rgba(43,39,35,0.28);
+  text-align: center;
+}
+.pin-card .pin-emoji { font-size: 40px; margin-bottom: 12px; display: block; }
+.pin-card h2 {
+  font-family: 'Fraunces', serif; font-size: 24px; font-weight: 600;
+  margin: 0 0 6px;
+}
+.pin-card p { font-size: 14px; color: var(--ink-soft); margin: 0 0 28px; }
+.pin-dots {
+  display: flex; justify-content: center; gap: 14px; margin-bottom: 28px;
+}
+.pin-dot {
+  width: 16px; height: 16px; border-radius: 50%;
+  border: 2px solid var(--line); background: var(--bg);
+  transition: background .15s, border-color .15s;
+}
+.pin-dot.filled { background: var(--ink); border-color: var(--ink); }
+.pin-dot.error { background: var(--red); border-color: var(--red); }
+.pin-keypad {
+  display: grid; grid-template-columns: repeat(3, 1fr);
+  gap: 10px; max-width: 240px; margin: 0 auto;
+}
+.pin-key {
+  border: 1.5px solid var(--line); border-radius: 12px;
+  background: var(--surface); font-family: 'Plus Jakarta Sans', sans-serif;
+  font-size: 20px; font-weight: 700; color: var(--ink);
+  padding: 16px 0; cursor: pointer;
+  transition: background .12s, transform .08s;
+  user-select: none; -webkit-user-select: none;
+}
+.pin-key:active { background: var(--line); transform: scale(0.95); }
+.pin-key.del { font-size: 16px; color: var(--ink-soft); }
+.pin-key.empty { border: none; background: none; cursor: default; }
+.pin-error-msg {
+  margin-top: 16px; font-size: 13px; font-weight: 700;
+  color: var(--red); min-height: 20px;
+}
+/* PIN change modal */
+.pin-change-row {
+  display: flex; gap: 10px; align-items: flex-end;
+}
+.pin-change-row .field { flex: 1; }
 @keyframes fadeUp { from{opacity:0;transform:translateY(7px)}to{opacity:1;transform:translateY(0)} }
 @keyframes popIn { from{opacity:0;transform:scale(0.97) translateY(5px)}to{opacity:1;transform:scale(1) translateY(0)} }
 
@@ -284,6 +341,62 @@ footer.note { text-align: center; font-size: 12px; color: var(--ink-faint); padd
 </style>
 </head>
 <body>
+
+<!-- PIN SCREEN -->
+<div id="pinScreen">
+  <div class="pin-card">
+    <span class="pin-emoji">🔐</span>
+    <h2>Verma Family Planner</h2>
+    <p>Enter your 4-digit PIN to continue</p>
+    <div class="pin-dots">
+      <span class="pin-dot" id="pd0"></span>
+      <span class="pin-dot" id="pd1"></span>
+      <span class="pin-dot" id="pd2"></span>
+      <span class="pin-dot" id="pd3"></span>
+    </div>
+    <div class="pin-keypad">
+      <button class="pin-key" data-v="1">1</button>
+      <button class="pin-key" data-v="2">2</button>
+      <button class="pin-key" data-v="3">3</button>
+      <button class="pin-key" data-v="4">4</button>
+      <button class="pin-key" data-v="5">5</button>
+      <button class="pin-key" data-v="6">6</button>
+      <button class="pin-key" data-v="7">7</button>
+      <button class="pin-key" data-v="8">8</button>
+      <button class="pin-key" data-v="9">9</button>
+      <button class="pin-key empty" aria-hidden="true"></button>
+      <button class="pin-key" data-v="0">0</button>
+      <button class="pin-key del" id="pinDel">⌫</button>
+    </div>
+    <div class="pin-error-msg" id="pinError"></div>
+  </div>
+</div>
+
+<!-- PIN CHANGE MODAL -->
+<div class="modal-backdrop" id="pinChangeBackdrop">
+  <div class="modal" role="dialog" aria-modal="true">
+    <h2>Change PIN</h2>
+    <p class="mdesc">Choose a new 4-digit PIN for the whole family.</p>
+    <div class="field">
+      <label for="pinCurrentInput">Current PIN</label>
+      <input type="password" id="pinCurrentInput" maxlength="4" inputmode="numeric" pattern="[0-9]*" placeholder="••••">
+    </div>
+    <div class="field">
+      <label for="pinNewInput">New PIN</label>
+      <input type="password" id="pinNewInput" maxlength="4" inputmode="numeric" pattern="[0-9]*" placeholder="••••">
+    </div>
+    <div class="field">
+      <label for="pinConfirmInput">Confirm new PIN</label>
+      <input type="password" id="pinConfirmInput" maxlength="4" inputmode="numeric" pattern="[0-9]*" placeholder="••••">
+    </div>
+    <div class="pin-error-msg" id="pinChangeError"></div>
+    <div class="modal-actions">
+      <button type="button" class="btn-cancel" id="pinChangeCancel">Cancel</button>
+      <button type="button" class="btn-save" id="pinChangeSave">Update PIN</button>
+    </div>
+  </div>
+</div>
+
 <div class="wrap">
 
 <header class="hero">
@@ -292,6 +405,7 @@ footer.note { text-align: center; font-size: 12px; color: var(--ink-faint); padd
     <h1 id="pageTitle">The Year Ahead</h1>
     <div class="header-icons">
       <button class="icon-btn" id="restoreBtn" title="Restore from backup">↺</button>
+      <button class="icon-btn" id="pinChangeBtn" title="Change PIN">🔑</button>
       <button class="icon-btn" id="connectBtn" title="Connect Google Sheet">🔗</button>
       <button class="icon-btn" id="settingsBtn" title="Edit profiles &amp; names">⚙️</button>
     </div>
@@ -1132,6 +1246,132 @@ async function init(){
 }
 
 init();
+
+/* =====================================================================
+   PIN PROTECTION
+   Default PIN is 1234. Family can change it via the 🔑 button.
+   PIN is stored in localStorage — each device remembers it independently
+   once set, so family members only enter it once per device per session.
+===================================================================== */
+const PIN_KEY = 'fplanner_pin';
+const PIN_UNLOCKED_KEY = 'fplanner_unlocked';
+const DEFAULT_PIN = '1234';
+
+function getPin(){ return localStorage.getItem(PIN_KEY) || DEFAULT_PIN; }
+function setPin(p){ localStorage.setItem(PIN_KEY, p); }
+function isUnlocked(){
+  // Session-level unlock — survives page refresh within same tab session
+  return sessionStorage.getItem(PIN_UNLOCKED_KEY) === '1';
+}
+function markUnlocked(){ sessionStorage.setItem(PIN_UNLOCKED_KEY, '1'); }
+
+let pinEntry = '';
+
+function renderPinDots(shake){
+  for(let i=0;i<4;i++){
+    const dot = document.getElementById('pd'+i);
+    dot.className = 'pin-dot' + (i < pinEntry.length ? ' filled' : '');
+    if(shake) dot.className += ' error';
+  }
+}
+
+function pinShakeAndReset(){
+  renderPinDots(true);
+  document.getElementById('pinError').textContent = 'Incorrect PIN — try again';
+  setTimeout(()=>{
+    pinEntry = '';
+    renderPinDots(false);
+    document.getElementById('pinError').textContent = '';
+  }, 900);
+}
+
+function handlePinDigit(v){
+  if(pinEntry.length >= 4) return;
+  pinEntry += v;
+  renderPinDots(false);
+  if(pinEntry.length === 4){
+    setTimeout(()=>{
+      if(pinEntry === getPin()){
+        markUnlocked();
+        document.getElementById('pinScreen').classList.add('hidden');
+      } else {
+        pinShakeAndReset();
+      }
+    }, 120);
+  }
+}
+
+function handlePinDelete(){
+  if(pinEntry.length > 0){
+    pinEntry = pinEntry.slice(0,-1);
+    renderPinDots(false);
+  }
+}
+
+// Keypad tap/click
+document.querySelectorAll('.pin-key[data-v]').forEach(btn=>{
+  btn.addEventListener('click', ()=> handlePinDigit(btn.dataset.v));
+});
+document.getElementById('pinDel').addEventListener('click', handlePinDelete);
+
+// Physical keyboard support
+document.addEventListener('keydown', e=>{
+  if(document.getElementById('pinScreen').classList.contains('hidden')) return;
+  if(e.key >= '0' && e.key <= '9') handlePinDigit(e.key);
+  if(e.key === 'Backspace') handlePinDelete();
+});
+
+// Show PIN screen on load unless already unlocked this session
+if(isUnlocked()){
+  document.getElementById('pinScreen').classList.add('hidden');
+} else {
+  renderPinDots(false);
+}
+
+/* ---- Change PIN modal ---- */
+const pinChangeBackdrop = document.getElementById('pinChangeBackdrop');
+const pinCurrentInput = document.getElementById('pinCurrentInput');
+const pinNewInput = document.getElementById('pinNewInput');
+const pinConfirmInput = document.getElementById('pinConfirmInput');
+const pinChangeError = document.getElementById('pinChangeError');
+
+document.getElementById('pinChangeBtn').addEventListener('click',()=>{
+  pinCurrentInput.value=''; pinNewInput.value=''; pinConfirmInput.value='';
+  pinChangeError.textContent='';
+  openM(pinChangeBackdrop);
+  setTimeout(()=>pinCurrentInput.focus(), 100);
+});
+
+document.getElementById('pinChangeCancel').addEventListener('click',()=>closeM(pinChangeBackdrop));
+pinChangeBackdrop.addEventListener('click',e=>{ if(e.target===pinChangeBackdrop) closeM(pinChangeBackdrop); });
+
+document.getElementById('pinChangeSave').addEventListener('click',()=>{
+  const current = pinCurrentInput.value.trim();
+  const newPin  = pinNewInput.value.trim();
+  const confirm = pinConfirmInput.value.trim();
+  pinChangeError.textContent = '';
+
+  if(current !== getPin()){
+    pinChangeError.textContent = 'Current PIN is incorrect'; return;
+  }
+  if(!/^\d{4}$/.test(newPin)){
+    pinChangeError.textContent = 'New PIN must be exactly 4 digits'; return;
+  }
+  if(newPin !== confirm){
+    pinChangeError.textContent = 'New PINs do not match'; return;
+  }
+  setPin(newPin);
+  closeM(pinChangeBackdrop);
+  alert('✅ PIN updated! Make sure to tell the family the new PIN.');
+});
+
+// Add pinChangeBackdrop to Escape handler
+document.addEventListener('keydown', e=>{
+  if(e.key==='Escape' && document.getElementById('pinScreen').classList.contains('hidden')){
+    closeM(pinChangeBackdrop);
+  }
+});
+
 })();
 </script>
 </body>
