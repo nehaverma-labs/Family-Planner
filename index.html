@@ -1060,7 +1060,24 @@ document.getElementById('connectSave').addEventListener('click',async()=>{
   const u=document.getElementById('scriptUrlInput').value.trim();
   if(!u) return;
   setUrl(u); closeM(connectBackdrop);
-  setSyncStatus('syncing','Connecting…'); await syncNow(true);
+  setSyncStatus('syncing','Connecting…');
+
+  // Always fetch the real PIN immediately after URL is saved
+  const fetched = await fetchPin();
+  if(fetched) currentPin = fetched;
+
+  // If the user is still on the PIN screen (just connected for first time),
+  // remove the connect button, clear the message, and show the keypad
+  const pinScreen = document.getElementById('pinScreen');
+  if(!pinScreen.classList.contains('hidden')){
+    const connectBtn = document.getElementById('pinConnectBtn');
+    if(connectBtn) connectBtn.remove();
+    document.getElementById('pinError').textContent = '';
+    pinEntry = '';
+    renderPinDots(false);
+  }
+
+  await syncNow(true);
 });
 
 /* =====================================================================
@@ -1351,9 +1368,35 @@ document.addEventListener('keydown', e=>{
     document.getElementById('pinScreen').classList.add('hidden');
     return;
   }
-  // Show loading state while fetching PIN
-  document.getElementById('pinError').textContent = 'Loading…';
-  currentPin = await fetchPin();
+
+  const u = getUrl();
+  if(!u){
+    // No URL saved yet — this is a brand new device.
+    // We can't fetch the PIN without a URL, so prompt for the URL first,
+    // then fetch the PIN, then show the keypad.
+    document.getElementById('pinError').textContent = 'First time? Tap below to connect.';
+    const pinScreen = document.getElementById('pinScreen');
+
+    // Add a one-time "Connect first" button inside the PIN screen
+    const existingBtn = document.getElementById('pinConnectBtn');
+    if(!existingBtn){
+      const btn = document.createElement('button');
+      btn.id = 'pinConnectBtn';
+      btn.textContent = '🔗 Connect Google Sheet first';
+      btn.style.cssText = 'margin-top:16px;background:var(--ink);color:#fff;border:none;border-radius:999px;padding:12px 22px;font-weight:700;font-size:14px;cursor:pointer;font-family:inherit;';
+      btn.addEventListener('click', ()=>{
+        document.getElementById('scriptUrlInput').value = '';
+        openM(connectBackdrop);
+      });
+      document.querySelector('.pin-card').appendChild(btn);
+    }
+    return; // don't show keypad yet
+  }
+
+  // URL available — fetch real PIN then show keypad
+  document.getElementById('pinError').textContent = 'Loading PIN…';
+  const fetched = await fetchPin();
+  if(fetched) currentPin = fetched;
   document.getElementById('pinError').textContent = '';
   renderPinDots(false);
 })();
