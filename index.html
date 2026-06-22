@@ -1249,21 +1249,44 @@ init();
 
 /* =====================================================================
    PIN PROTECTION
-   Default PIN is 1234. Family can change it via the 🔑 button.
-   PIN is stored in localStorage — each device remembers it independently
-   once set, so family members only enter it once per device per session.
+   PIN is stored in the Google Sheet (Config tab, cell A1) so it is the
+   same on every device. Default is 1234.
+   Session unlock is kept in sessionStorage so re-opening a tab within
+   the same browser session does not ask again.
 ===================================================================== */
-const PIN_KEY = 'fplanner_pin';
 const PIN_UNLOCKED_KEY = 'fplanner_unlocked';
-const DEFAULT_PIN = '1234';
+const DEFAULT_PIN      = '1234';
 
-function getPin(){ return localStorage.getItem(PIN_KEY) || DEFAULT_PIN; }
-function setPin(p){ localStorage.setItem(PIN_KEY, p); }
+// In-memory PIN — loaded from remote on startup
+let currentPin = DEFAULT_PIN;
+
 function isUnlocked(){
-  // Session-level unlock — survives page refresh within same tab session
   return sessionStorage.getItem(PIN_UNLOCKED_KEY) === '1';
 }
-function markUnlocked(){ sessionStorage.setItem(PIN_UNLOCKED_KEY, '1'); }
+function markUnlocked(){
+  sessionStorage.setItem(PIN_UNLOCKED_KEY, '1');
+}
+
+async function fetchPin(){
+  const u = getUrl();
+  if(!u) return DEFAULT_PIN;
+  try{
+    const r = await fetch(u + '?action=getPin', { method:'GET', cache:'no-store' });
+    if(!r.ok) return DEFAULT_PIN;
+    const json = await r.json();
+    return (json && json.pin) ? String(json.pin).trim() : DEFAULT_PIN;
+  }catch(e){ return DEFAULT_PIN; }
+}
+
+async function pushPin(pin){
+  const u = getUrl();
+  if(!u) return;
+  await fetch(u, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body: JSON.stringify({ action: 'setPin', pin: pin })
+  });
+}
 
 let pinEntry = '';
 
@@ -1291,7 +1314,7 @@ function handlePinDigit(v){
   renderPinDots(false);
   if(pinEntry.length === 4){
     setTimeout(()=>{
-      if(pinEntry === getPin()){
+      if(pinEntry === currentPin){
         markUnlocked();
         document.getElementById('pinScreen').classList.add('hidden');
       } else {
@@ -1321,19 +1344,26 @@ document.addEventListener('keydown', e=>{
   if(e.key === 'Backspace') handlePinDelete();
 });
 
-// Show PIN screen on load unless already unlocked this session
-if(isUnlocked()){
-  document.getElementById('pinScreen').classList.add('hidden');
-} else {
+// On load: if already unlocked this session, skip PIN screen.
+// Otherwise fetch the PIN from the sheet, then show the keypad.
+(async function initPin(){
+  if(isUnlocked()){
+    document.getElementById('pinScreen').classList.add('hidden');
+    return;
+  }
+  // Show loading state while fetching PIN
+  document.getElementById('pinError').textContent = 'Loading…';
+  currentPin = await fetchPin();
+  document.getElementById('pinError').textContent = '';
   renderPinDots(false);
-}
+})();
 
 /* ---- Change PIN modal ---- */
 const pinChangeBackdrop = document.getElementById('pinChangeBackdrop');
-const pinCurrentInput = document.getElementById('pinCurrentInput');
-const pinNewInput = document.getElementById('pinNewInput');
-const pinConfirmInput = document.getElementById('pinConfirmInput');
-const pinChangeError = document.getElementById('pinChangeError');
+const pinCurrentInput   = document.getElementById('pinCurrentInput');
+const pinNewInput       = document.getElementById('pinNewInput');
+const pinConfirmInput   = document.getElementById('pinConfirmInput');
+const pinChangeError    = document.getElementById('pinChangeError');
 
 document.getElementById('pinChangeBtn').addEventListener('click',()=>{
   pinCurrentInput.value=''; pinNewInput.value=''; pinConfirmInput.value='';
@@ -1345,13 +1375,13 @@ document.getElementById('pinChangeBtn').addEventListener('click',()=>{
 document.getElementById('pinChangeCancel').addEventListener('click',()=>closeM(pinChangeBackdrop));
 pinChangeBackdrop.addEventListener('click',e=>{ if(e.target===pinChangeBackdrop) closeM(pinChangeBackdrop); });
 
-document.getElementById('pinChangeSave').addEventListener('click',()=>{
+document.getElementById('pinChangeSave').addEventListener('click', async()=>{
   const current = pinCurrentInput.value.trim();
   const newPin  = pinNewInput.value.trim();
   const confirm = pinConfirmInput.value.trim();
   pinChangeError.textContent = '';
 
-  if(current !== getPin()){
+  if(current !== currentPin){
     pinChangeError.textContent = 'Current PIN is incorrect'; return;
   }
   if(!/^[0-9]{4}$/.test(newPin)){
@@ -1360,12 +1390,24 @@ document.getElementById('pinChangeSave').addEventListener('click',()=>{
   if(newPin !== confirm){
     pinChangeError.textContent = 'New PINs do not match'; return;
   }
-  setPin(newPin);
-  closeM(pinChangeBackdrop);
-  alert('✅ PIN updated! Make sure to tell the family the new PIN.');
+
+  const saveBtn = document.getElementById('pinChangeSave');
+  saveBtn.textContent = 'Saving…';
+  saveBtn.disabled = true;
+  try{
+    await pushPin(newPin);
+    currentPin = newPin;
+    closeM(pinChangeBackdrop);
+    alert('PIN updated! All family devices will use the new PIN next time they open the app.');
+  }catch(e){
+    pinChangeError.textContent = 'Could not save — check your connection and try again.';
+  }finally{
+    saveBtn.textContent = 'Update PIN';
+    saveBtn.disabled = false;
+  }
 });
 
-// Add pinChangeBackdrop to Escape handler
+// Escape closes PIN change modal
 document.addEventListener('keydown', e=>{
   if(e.key==='Escape' && document.getElementById('pinScreen').classList.contains('hidden')){
     closeM(pinChangeBackdrop);
