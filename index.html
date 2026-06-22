@@ -1038,11 +1038,20 @@ async function syncNow(isFirst){
   try{
     const remote=await fetchRemote();
     const local=loadLocal();
-    if(remote&&remote.members&&remote.events){
-      if(!remote.updatedAt||!local||!local.updatedAt||remote.updatedAt>local.updatedAt){
+    if(remote&&remote.members&&remote.events&&remote.events.length>0){
+      // Remote has real data — it always wins on a first connect,
+      // or if it is newer than local. NEVER overwrite it with seed data.
+      const remoteIsNewer=!local||!local.updatedAt||!remote.updatedAt||remote.updatedAt>=local.updatedAt;
+      if(isFirst||remoteIsNewer){
         applyRemote(remote); render();
-      } else if(local.updatedAt>remote.updatedAt){ await pushRemote(local); }
-    } else if(local){ await pushRemote(local); }
+      } else if(local.updatedAt>remote.updatedAt){
+        await pushRemote(local);
+      }
+    } else if(remote&&remote.members&&remote.events&&remote.events.length===0){
+      // Remote sheet is genuinely empty — safe to push local up
+      if(local) await pushRemote(local);
+    }
+    // If remote returns nothing at all, do nothing — never push local seed up
     setSyncStatus('connected',isFirst?'Connected!':'Synced just now');
     startAutoRefresh();
   }catch(e){ setSyncStatus('offline',isFirst?'Could not connect — check the URL':'Sync failed'); }
