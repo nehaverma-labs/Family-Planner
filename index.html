@@ -1062,19 +1062,18 @@ document.getElementById('connectSave').addEventListener('click',async()=>{
   setUrl(u); closeM(connectBackdrop);
   setSyncStatus('syncing','Connecting…');
 
-  // Always fetch the real PIN immediately after URL is saved
+  // Fetch real PIN now that we have a URL
   const fetched = await fetchPin();
   if(fetched) currentPin = fetched;
 
-  // If the user is still on the PIN screen (just connected for first time),
-  // remove the connect button, clear the message, and show the keypad
+  // If still on PIN screen (first-time setup), remove connect button and enable keypad
   const pinScreen = document.getElementById('pinScreen');
   if(!pinScreen.classList.contains('hidden')){
     const connectBtn = document.getElementById('pinConnectBtn');
     if(connectBtn) connectBtn.remove();
     document.getElementById('pinError').textContent = '';
     pinEntry = '';
-    renderPinDots(false);
+    enableKeypad();
   }
 
   await syncNow(true);
@@ -1348,41 +1347,58 @@ function handlePinDelete(){
   }
 }
 
+// Keypad is disabled until PIN is fetched — prevents entry before currentPin is set
+let pinReady = false;
+
 // Keypad tap/click
 document.querySelectorAll('.pin-key[data-v]').forEach(btn=>{
-  btn.addEventListener('click', ()=> handlePinDigit(btn.dataset.v));
+  btn.addEventListener('click', ()=>{ if(pinReady) handlePinDigit(btn.dataset.v); });
 });
-document.getElementById('pinDel').addEventListener('click', handlePinDelete);
+document.getElementById('pinDel').addEventListener('click', ()=>{ if(pinReady) handlePinDelete(); });
 
 // Physical keyboard support
 document.addEventListener('keydown', e=>{
   if(document.getElementById('pinScreen').classList.contains('hidden')) return;
+  if(!pinReady) return;
   if(e.key >= '0' && e.key <= '9') handlePinDigit(e.key);
   if(e.key === 'Backspace') handlePinDelete();
 });
 
+function enableKeypad(){
+  pinReady = true;
+  // Visually un-dim the keypad
+  document.querySelector('.pin-keypad').style.opacity = '1';
+  document.querySelector('.pin-keypad').style.pointerEvents = 'auto';
+  renderPinDots(false);
+}
+
+function disableKeypad(){
+  pinReady = false;
+  document.querySelector('.pin-keypad').style.opacity = '0.35';
+  document.querySelector('.pin-keypad').style.pointerEvents = 'none';
+}
+
 // On load: if already unlocked this session, skip PIN screen.
-// Otherwise fetch the PIN from the sheet, then show the keypad.
+// Otherwise fetch the PIN from the sheet FIRST, then enable the keypad.
 (async function initPin(){
   if(isUnlocked()){
     document.getElementById('pinScreen').classList.add('hidden');
     return;
   }
 
+  // Start with keypad disabled
+  disableKeypad();
+
   const u = getUrl();
   if(!u){
-    // No URL saved yet — this is a brand new device.
-    // We can't fetch the PIN without a URL, so prompt for the URL first,
-    // then fetch the PIN, then show the keypad.
-    document.getElementById('pinError').textContent = 'First time? Tap below to connect.';
-    const pinScreen = document.getElementById('pinScreen');
-
-    // Add a one-time "Connect first" button inside the PIN screen
+    // No URL saved yet — brand new device.
+    // Show a connect button; keypad stays disabled until URL is set and PIN fetched.
+    document.getElementById('pinError').textContent = 'First time? Connect your Google Sheet to continue.';
     const existingBtn = document.getElementById('pinConnectBtn');
     if(!existingBtn){
       const btn = document.createElement('button');
       btn.id = 'pinConnectBtn';
-      btn.textContent = '🔗 Connect Google Sheet first';
+      btn.textContent = '🔗 Connect Google Sheet';
       btn.style.cssText = 'margin-top:16px;background:var(--ink);color:#fff;border:none;border-radius:999px;padding:12px 22px;font-weight:700;font-size:14px;cursor:pointer;font-family:inherit;';
       btn.addEventListener('click', ()=>{
         document.getElementById('scriptUrlInput').value = '';
@@ -1390,15 +1406,15 @@ document.addEventListener('keydown', e=>{
       });
       document.querySelector('.pin-card').appendChild(btn);
     }
-    return; // don't show keypad yet
+    return;
   }
 
-  // URL available — fetch real PIN then show keypad
-  document.getElementById('pinError').textContent = 'Loading PIN…';
+  // URL is saved — fetch real PIN, THEN enable keypad
+  document.getElementById('pinError').textContent = 'Loading…';
   const fetched = await fetchPin();
   if(fetched) currentPin = fetched;
   document.getElementById('pinError').textContent = '';
-  renderPinDots(false);
+  enableKeypad();
 })();
 
 /* ---- Change PIN modal ---- */
