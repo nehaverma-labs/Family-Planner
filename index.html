@@ -1354,7 +1354,7 @@ document.getElementById('pinChangeSave').addEventListener('click',()=>{
   if(current !== getPin()){
     pinChangeError.textContent = 'Current PIN is incorrect'; return;
   }
-  if(!/^\d{4}$/.test(newPin)){
+  if(!/^[0-9]{4}$/.test(newPin)){
     pinChangeError.textContent = 'New PIN must be exactly 4 digits'; return;
   }
   if(newPin !== confirm){
